@@ -1,6 +1,9 @@
 const mqtt = require('mqtt');
-const async = require('async');
+const waterfall = require('async').waterfall;
+const each = require('async').each;
 const fs = require('fs');
+const path = require('path');
+const walk = require('walk').files;
 
 module.exports = class Scheduler {
 
@@ -9,6 +12,7 @@ module.exports = class Scheduler {
 
 		//Handle loading of files
 		this.filesLoaded = false;
+		this.scheduledTasks = [];
 		this.opts.scheduleFolder = opts.scheduleFolder;
 		delete this.opts.scheduleFolder;
 
@@ -48,7 +52,33 @@ module.exports = class Scheduler {
 	}
 
 	_loadFiles(){
-		
+		var self = this;
+		var reads = [];
+		walk(self.scheduleFolder, (baseDir, filename, stat, next)=>{
+			try{
+				reads.push(require(path.join(baseDir, filename)));
+			} catch(err){
+				next(err);
+			}
+		}, (err)=>{
+			if(err) self._handleCallback(err);
+			else {
+				reads.forEach(read =>{
+					if(Array.isArray(read)){
+						read.forEach(read =>{
+							self.scheduledTasks.push(read);
+						});
+					} else {
+						self.scheduledTasks.push(read);
+					}
+				});
+
+				self.filesLoaded = true;
+
+				self._handleCallback();
+			}
+
+		});
 	}
 
 	_onConnect(){
@@ -60,8 +90,22 @@ module.exports = class Scheduler {
 		this._handleCallback();
 	}
 
-	_handleCallback(){
-		if(this.cb && this.connected && this.filesLoaded) this.cb();
+	_handleCallback(err){
+		if(err && this.cb && !this._callbackTriggered){
+			this._callbackTriggered = true;
+			this.cb(err);
+		} else if(err){
+			this._callbackTriggered = true;
+			throw new Error(err);
+		} else if(this.cb && this.connected && this.filesLoaded){
+			this._callbackTriggered = true;
+			this.cb();
+			this._handleScheduledTasks();
+		}
+	}
+
+	_handleScheduledTakss(){
+
 	}
 
 
