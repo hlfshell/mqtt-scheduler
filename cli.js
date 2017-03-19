@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 const cli = require('commander');
 const Scheduler = require('./scheduler.js');
 
