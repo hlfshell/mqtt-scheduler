@@ -12,7 +12,10 @@
   },
   "license": "MIT",
   "dependencies": {
+    "async": "^2.1.5",
+    "commander": "^2.9.0",
     "date.js": "^0.3.1",
-    "human-interval": "^0.1.6"
+    "mqtt": "^2.5.0",
+    "walk": "^2.3.9"
   }
 }

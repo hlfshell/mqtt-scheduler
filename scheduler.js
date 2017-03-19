@@ -3,28 +3,28 @@ const waterfall = require('async').waterfall;
 const each = require('async').each;
 const fs = require('fs');
 const path = require('path');
-const walk = require('walk').files;
+const forever = require('async').forever;
+const datejs = require('date.js');
 
 module.exports = class Scheduler {
 
 	constructor(opts, cb){
-		if(cb) this.cb;
-
-		//Handle loading of files
-		this.filesLoaded = false;
-		this.scheduledTasks = [];
-		this.opts.scheduleFolder = opts.scheduleFolder;
-		delete this.opts.scheduleFolder;
-
-		this._loadFiles();
+		if(cb) this.cb; 
 
 		//Save options passed for potential future reference
 		this.opts = opts;
 
+		//Handle loading of files
+		this.filesLoaded = false;
+		this.scheduledTasks = [];
+		this.scheduleFile = this.opts.scheduleFile;
+		delete this.opts.scheduleFile;
+
+		this._loadFile();
+
 		//Handle MQTT host data
 		if(!this.opts.host) throw new Error("Missing required MQTT host server") 
 		this.host = this.opts.host;
-		delete this.opts.host;
 
 		//Handle optional close events.
 		this.onMessage =  this.opts.onMessage ? this.opts.onMessage : function(){};
@@ -39,55 +39,57 @@ module.exports = class Scheduler {
 		this.onClose =  this.opts.onClose ? this.opts.onClose : function(){};
 		delete this.opts.onClose;
 
+		this.onTaskFire = this.opts.onTaskFire ? this.opts.onTaskFire : function(){};
+		delete this.opts.onTaskFire;
+
 		//Prepare connection
 		this.connected = false;
-
-		this.client = mqtt.connect(this.host, this.opts);
+		this.client = mqtt.connect(this.opts);
 
 		//Attach events
-		client.on('connect', this._onConnect);
-		client.on('message', this.onMessage);
-		client.on("error", this.onError);
-		client.on("close", this.onClose);
+		var self = this;
+		this.client.on('connect', function(){
+			self._onConnect();
+		});
+		this.client.on('message', this.onMessage);
+		this.client.on("error", this.onError);
+		this.client.on("close", this.onClose);
+		this.client.on("task-fire", this.onTaskFire);
+
+		//Setup forever checker
+		this.checker = forever(done =>{
+			this._checkForTasks(done);
+		}, ()=>{});
 	}
 
-	_loadFiles(){
+	_loadFile(){
 		var self = this;
-		var reads = [];
-		walk(self.scheduleFolder, (baseDir, filename, stat, next)=>{
-			try{
-				reads.push(require(path.join(baseDir, filename)));
-			} catch(err){
-				next(err);
-			}
-		}, (err)=>{
-			if(err) self._handleCallback(err);
-			else {
-				reads.forEach(read =>{
-					if(Array.isArray(read)){
-						read.forEach(read =>{
-							self.scheduledTasks.push(read);
-						});
-					} else {
-						self.scheduledTasks.push(read);
-					}
+
+		fs.readFile(self.scheduleFile, (err, data)=>{
+			data = data.toString();
+			
+			//Parse the data
+			var lines = data.split("\r\n");
+			
+			lines.forEach((line)=>{
+				var parsedTask  = line.split("\t");
+				if(parsedTask.length != 4) return;
+				self.scheduledTasks.push({
+					name: parsedTask[0],
+					interval: parsedTask[1],
+					topic: parsedTask[2],
+					payload: parsedTask[3],
+					nextFire: datejs(parsedTask[1])
 				});
-
-				self.filesLoaded = true;
-
-				self._handleCallback();
-			}
-
+			});
 		});
 	}
 
 	_onConnect(){
-		//First, call our custom on connect
+		// First, call our custom on connect
 		this.onConnect();
 
 		this.connected = true;
-
-		this._handleCallback();
 	}
 
 	_handleCallback(err){
@@ -100,12 +102,25 @@ module.exports = class Scheduler {
 		} else if(this.cb && this.connected && this.filesLoaded){
 			this._callbackTriggered = true;
 			this.cb();
-			this._handleScheduledTasks();
 		}
 	}
 
-	_handleScheduledTakss(){
+	_checkForTasks(done){
+		if(!this.scheduledTasks || this.scheduledTasks.length == 0) return setTimeout(done, 10);
+		var now = new Date()
+		this.scheduledTasks.forEach((task, index)=>{
+			if(task.nextFire <= now){
+				this.scheduledTasks[index].nextFire = datejs(task.interval);
+				this._handleTask(task);
+			}
+		});
 
+		setTimeout(done, 10);
+	}
+
+	_handleTask(task){
+		this.onTaskFire(task);
+		this.client.publish(task.topic, task.message);
 	}
 
 
