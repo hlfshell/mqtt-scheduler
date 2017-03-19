@@ -16,6 +16,7 @@ cli
 
 if(!cli.file){
 	console.error("You must set --file [file] for us to know what tasks to fire off and when");
+	cli.outputHelp();
 	process.exit(0);
 }
 
@@ -36,7 +37,8 @@ var scheduler = new Scheduler({
 	username: cli.username ? cli.username : undefined,
 	password: cli.password ? cli.password : undefined,
 	//Scheduler stuff
-	scheduleFile: cli.file
+	scheduleFile: cli.file,
+	onConnect: ()=> console.log("mqtt-scheduler is connected to the MQTT server")
 }, (err)=>{
 	if(err){
 		console.error("Scheduler has suffered from an error!");
