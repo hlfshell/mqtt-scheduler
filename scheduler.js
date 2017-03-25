@@ -66,10 +66,11 @@ module.exports = class Scheduler {
 		var self = this;
 
 		fs.readFile(self.scheduleFile, (err, data)=>{
+			console.log(data.toString());
 			data = data.toString();
 			
 			//Parse the data
-			var lines = data.split("\r\n");
+			var lines = data.split("\n");
 			
 			lines.forEach((line)=>{
 				var parsedTask  = line.split("\t");
@@ -78,7 +79,7 @@ module.exports = class Scheduler {
 					name: parsedTask[0],
 					interval: parsedTask[1],
 					topic: parsedTask[2],
-					payload: parsedTask[3],
+					payload: parsedTask[3].replace(/[\r\n]/g, ''),
 					nextFire: datejs(parsedTask[1])
 				});
 			});
@@ -120,7 +121,7 @@ module.exports = class Scheduler {
 
 	_handleTask(task){
 		this.onTaskFire(task);
-		this.client.publish(task.topic, task.message);
+		this.client.publish(task.topic, task.payload);
 	}
 
 
